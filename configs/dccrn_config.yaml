@@ -1,0 +1,80 @@
+# DCCRN Configuration
+# Deep Complex Convolution Recurrent Network for Speech Enhancement
+
+# Audio settings
+audio:
+  sample_rate: 16000
+  segment_length: 4.0  # seconds
+  n_samples: 64000     # sample_rate * segment_length
+
+# STFT settings
+stft:
+  n_fft: 512
+  hop_length: 256
+  win_length: 512
+  window: hann
+
+# Model architecture
+model:
+  name: dccrn
+  encoder_channels: [16, 32, 64, 128, 256, 256]
+  kernel_size: [5, 2]
+  stride: [2, 1]
+  lstm_hidden: 256
+  lstm_layers: 2
+  masking_mode: "E"  # "E" for complex ratio mask, "C" for complex mapping
+
+# Training settings
+training:
+  batch_size: 16
+  epochs: 200
+  learning_rate: 0.001
+  weight_decay: 0.0001
+  optimizer: adam
+  gradient_clip: 5.0
+  
+  # Learning rate scheduler
+  scheduler:
+    type: reduce_on_plateau
+    factor: 0.5
+    patience: 3
+    min_lr: 0.00001
+  
+  # Early stopping
+  early_stopping:
+    patience: 10
+    min_delta: 0.001
+  
+  # Mixed precision training
+  use_amp: true
+
+# Loss function weights
+loss:
+  si_snr_weight: 0.5
+  magnitude_weight: 0.3
+  complex_weight: 0.2
+
+# Data settings
+data:
+  train_clean_dir: "data/processed/train/clean"
+  train_noisy_dir: "data/processed/train/noisy"
+  val_clean_dir: "data/processed/val/clean"
+  val_noisy_dir: "data/processed/val/noisy"
+  test_clean_dir: "data/processed/test/clean"
+  test_noisy_dir: "data/processed/test/noisy"
+  num_workers: 4
+  pin_memory: true
+
+# Noise mixing settings (for on-the-fly mixing)
+mixing:
+  snr_range: [-5, 20]  # dB
+  snr_levels: [-5, 0, 5, 10, 15, 20]
+  dynamic_mixing: false  # Mix on-the-fly during training
+
+# Logging & Checkpoints
+logging:
+  log_dir: "logs"
+  checkpoint_dir: "checkpoints"
+  save_every: 5         # Save checkpoint every N epochs
+  log_interval: 100     # Log every N steps
+  tensorboard: true

@@ -1,0 +1,32 @@
+# Byte-compiled / optimized files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Large datasets & raw files
+data/
+
+# Training artifacts & logs
+checkpoints/
+logs/
+*.pth
+*.pt
+*.tfevents*
+
+# Archives
+*.tar.gz
+*.zip
+*.tar
+
+# OS / Editor files
+.vscode/
+.idea/
+*.swp
+Thumbs.db
+.DS_Store
