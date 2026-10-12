@@ -48,10 +48,12 @@ class DCCRN(nn.Module):
         hop_length: int = 256,
         win_length: int = 512,
         encoder_channels: list = None,
-        kernel_size: tuple = (5, 2),
+        kernel_size: tuple = (5, 3),
         stride: tuple = (2, 1),
-        lstm_hidden: int = 256,
+        lstm_hidden: int = 512,
         lstm_layers: int = 2,
+        bidirectional: bool = True,
+        use_attention: bool = True,
         masking_mode: str = "E",
     ):
         super().__init__()
@@ -63,6 +65,10 @@ class DCCRN(nn.Module):
         self.hop_length = hop_length
         self.win_length = win_length
         self.masking_mode = masking_mode
+        self.kernel_size = kernel_size
+        self.stride = stride
+        self.bidirectional = bidirectional
+        self.use_attention = use_attention
         
         # Register STFT window as buffer (not a parameter)
         self.register_buffer("window", torch.hann_window(win_length))
@@ -74,6 +80,8 @@ class DCCRN(nn.Module):
         # Input has 1 channel (single-channel audio)
         in_channels = [1] + encoder_channels[:-1]
         self.encoder = nn.ModuleList()
+        pad_f = kernel_size[0] // 2
+        pad_t = kernel_size[1] // 2
         for i in range(len(encoder_channels)):
             self.encoder.append(
                 ComplexEncoderBlock(
@@ -81,38 +89,37 @@ class DCCRN(nn.Module):
                     out_channels=encoder_channels[i],
                     kernel_size=kernel_size,
                     stride=stride,
-                    padding=(kernel_size[0] // 2, kernel_size[1] - 1),
+                    padding=(pad_f, pad_t),
+                    use_attention=use_attention,
                 )
             )
         
         # --- LSTM Bottleneck ---
         # Calculate the frequency dimension after encoder
-        # Each encoder layer reduces freq by stride[0]=2
+        # Each encoder layer reduces freq by stride[0]=2 with pad_f
         freq_after_encoder = self.n_freqs
         for _ in range(len(encoder_channels)):
-            freq_after_encoder = (freq_after_encoder + 2 * (kernel_size[0] // 2) - kernel_size[0]) // stride[0] + 1
+            freq_after_encoder = (freq_after_encoder + 2 * pad_f - kernel_size[0]) // stride[0] + 1
         
         lstm_input_size = encoder_channels[-1] * freq_after_encoder
         self.lstm = ComplexLSTM(
             input_size=lstm_input_size,
             hidden_size=lstm_hidden,
             num_layers=lstm_layers,
+            bidirectional=bidirectional,
         )
         
         # --- Decoder ---
-        # Decoder mirrors encoder with skip connections
-        decoder_channels = encoder_channels[::-1]  # Reverse
+        # Decoder mirrors encoder with skip connections at every stage
+        num_layers = len(encoder_channels)
         self.decoder = nn.ModuleList()
-        for i in range(len(decoder_channels)):
-            # Skip connections add channels from encoder
-            if i == 0:
-                in_ch = encoder_channels[-1]
-            else:
-                encoder_idx = len(encoder_channels) - 1 - i
-                in_ch = decoder_channels[i-1] + encoder_channels[encoder_idx]
-                
-            out_ch = decoder_channels[i] if i < len(decoder_channels) - 1 else 1
-            is_last = (i == len(decoder_channels) - 1)
+        prev_ch = encoder_channels[-1]
+        for i in range(num_layers):
+            skip_ch = encoder_channels[num_layers - 1 - i]
+            in_ch = prev_ch + skip_ch
+            is_last = (i == num_layers - 1)
+            out_ch = encoder_channels[num_layers - 2 - i] if not is_last else 1
+            prev_ch = out_ch
             
             self.decoder.append(
                 ComplexDecoderBlock(
@@ -120,14 +127,12 @@ class DCCRN(nn.Module):
                     out_channels=out_ch,
                     kernel_size=kernel_size,
                     stride=stride,
-                    padding=(kernel_size[0] // 2, 0),
-                    output_padding=(1, 0) if not is_last else (1, 0),
+                    padding=(pad_f, pad_t),
+                    output_padding=(0, 0),
                     is_last=is_last,
+                    use_attention=use_attention if not is_last else False,
                 )
             )
-        
-        # Output projection for mask
-        self.output_activation = nn.Sigmoid() if masking_mode == "E" else nn.Tanh()
 
     def stft(self, x: torch.Tensor):
         """Compute STFT and return real and imaginary parts.
@@ -216,39 +221,50 @@ class DCCRN(nn.Module):
         for i, decoder_block in enumerate(self.decoder):
             # Get corresponding encoder output for skip connection
             encoder_idx = len(self.encoder) - 1 - i
-            if i > 0:
-                skip_real, skip_imag = encoder_outputs[encoder_idx]
-                # Ensure dimensions match before concatenating
-                if real.shape != skip_real.shape:
-                    # Pad or trim to match
-                    min_f = min(real.shape[2], skip_real.shape[2])
-                    min_t = min(real.shape[3], skip_real.shape[3])
-                    real = real[:, :, :min_f, :min_t]
-                    imag = imag[:, :, :min_f, :min_t]
-                    skip_real = skip_real[:, :, :min_f, :min_t]
-                    skip_imag = skip_imag[:, :, :min_f, :min_t]
-                
-                real = torch.cat([real, skip_real], dim=1)
-                imag = torch.cat([imag, skip_imag], dim=1)
+            skip_real, skip_imag = encoder_outputs[encoder_idx]
             
+            # Dimension alignment check (exact match guaranteed with (5, 3) kernel)
+            if real.shape[-2:] != skip_real.shape[-2:]:
+                min_f = min(real.shape[2], skip_real.shape[2])
+                min_t = min(real.shape[3], skip_real.shape[3])
+                real = real[:, :, :min_f, :min_t]
+                imag = imag[:, :, :min_f, :min_t]
+                skip_real = skip_real[:, :, :min_f, :min_t]
+                skip_imag = skip_imag[:, :, :min_f, :min_t]
+            
+            real = torch.cat([real, skip_real], dim=1)
+            imag = torch.cat([imag, skip_imag], dim=1)
             real, imag = decoder_block(real, imag)
         
         # --- Apply mask ---
-        # Trim decoder output to match input spectrogram dimensions
-        min_f = min(real.shape[2], input_real.shape[2])
-        min_t = min(real.shape[3], input_real.shape[3])
-        real = real[:, :, :min_f, :min_t]
-        imag = imag[:, :, :min_f, :min_t]
-        input_real = input_real[:, :, :min_f, :min_t]
-        input_imag = input_imag[:, :, :min_f, :min_t]
+        # Ensure mask matches input STFT shape exactly
+        if real.shape[-2:] != input_real.shape[-2:]:
+            min_f = min(real.shape[2], input_real.shape[2])
+            min_t = min(real.shape[3], input_real.shape[3])
+            real = real[:, :, :min_f, :min_t]
+            imag = imag[:, :, :min_f, :min_t]
+            input_real = input_real[:, :, :min_f, :min_t]
+            input_imag = input_imag[:, :, :min_f, :min_t]
         
         if self.masking_mode == "E":
-            # Complex Ratio Mask
-            mask_real = self.output_activation(real)
-            mask_imag = self.output_activation(imag)
-            # Apply mask via complex multiplication
-            enhanced_real = input_real * mask_real - input_imag * mask_imag
-            enhanced_imag = input_real * mask_imag + input_imag * mask_real
+            # Complex Ratio Mask (cRM) with Bounded Magnitude & Full Phase Range
+            # Hu et al., Interspeech 2020 (DCCRN standard)
+            mask_mag = torch.sqrt(real ** 2 + imag ** 2 + 1e-8)
+            mask_phase = torch.atan2(imag, real)
+            
+            # Bound mask magnitude via tanh: [0, 1] to prevent volume explosion
+            mask_mag = torch.tanh(mask_mag)
+            
+            # Input magnitude and phase
+            input_mag = torch.sqrt(input_real ** 2 + input_imag ** 2 + 1e-8)
+            input_phase = torch.atan2(input_imag, input_real)
+            
+            # Reconstruct with enhanced magnitude and phase shifted freely in [-pi, pi]
+            est_mag = mask_mag * input_mag
+            est_phase = input_phase + mask_phase
+            
+            enhanced_real = est_mag * torch.cos(est_phase)
+            enhanced_imag = est_mag * torch.sin(est_phase)
         else:
             # Direct complex mapping
             enhanced_real = real
@@ -281,10 +297,12 @@ def build_dccrn(config: dict) -> DCCRN:
         hop_length=stft_cfg.get("hop_length", 256),
         win_length=stft_cfg.get("win_length", 512),
         encoder_channels=model_cfg.get("encoder_channels", [16, 32, 64, 128, 256, 256]),
-        kernel_size=tuple(model_cfg.get("kernel_size", [5, 2])),
+        kernel_size=tuple(model_cfg.get("kernel_size", [5, 3])),
         stride=tuple(model_cfg.get("stride", [2, 1])),
-        lstm_hidden=model_cfg.get("lstm_hidden", 256),
+        lstm_hidden=model_cfg.get("lstm_hidden", 512),
         lstm_layers=model_cfg.get("lstm_layers", 2),
+        bidirectional=model_cfg.get("bidirectional", True),
+        use_attention=model_cfg.get("use_attention", True),
         masking_mode=model_cfg.get("masking_mode", "E"),
     )
     

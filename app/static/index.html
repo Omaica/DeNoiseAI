@@ -1,0 +1,1733 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>DeNoiseAI — Khử Nhiễu Âm Thanh & Phân Tích Phổ Tần Số</title>
+  <meta name="description" content="Ứng dụng khử nhiễu âm thanh thông minh DCCRN Deep Learning kèm phân tích phổ tần số thời gian thực (Spectrogram & Power Spectrum)"/>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet"/>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:        #090c13;
+      --surface:   #101623;
+      --surface2:  #172033;
+      --surface3:  #1f2b45;
+      --border:    #243049;
+      --border-hl: #3b82f6;
+      --accent1:   #6366f1;
+      --accent2:   #8b5cf6;
+      --accent3:   #06b6d4;
+      --green:     #10b981;
+      --red:       #ef4444;
+      --yellow:    #f59e0b;
+      --text:      #f8fafc;
+      --muted:     #7987a1;
+      --radius:    14px;
+    }
+
+    body {
+      font-family: 'Inter', system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      overflow-x: hidden;
+    }
+
+    .font-mono { font-family: 'JetBrains Mono', monospace; }
+
+    /* ── Background glow ── */
+    .bg-glow {
+      position: fixed; top: -160px; left: 50%;
+      transform: translateX(-50%);
+      width: 1100px; height: 500px;
+      background: radial-gradient(ellipse, rgba(99,102,241,.18) 0%, rgba(6,182,212,.08) 45%, transparent 70%);
+      pointer-events: none; z-index: 0;
+    }
+
+    /* ── Header ── */
+    header {
+      width: 100%; max-width: 1100px;
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 24px 24px 0;
+      position: relative; z-index: 1;
+    }
+    .logo {
+      display: flex; align-items: center; gap: 12px;
+      font-size: 1.3rem; font-weight: 800; letter-spacing: -.5px;
+    }
+    .logo-icon {
+      width: 38px; height: 38px; border-radius: 10px;
+      background: linear-gradient(135deg, var(--accent1), var(--accent2));
+      display: flex; align-items: center; justify-content: center;
+      font-size: 20px;
+      box-shadow: 0 4px 14px rgba(99,102,241,.4);
+    }
+    .badge {
+      font-size: .7rem; font-weight: 700; padding: 4px 10px;
+      background: rgba(99,102,241,.15); border: 1px solid rgba(99,102,241,.35);
+      border-radius: 20px; color: #a5b4fc;
+      letter-spacing: .5px; text-transform: uppercase;
+    }
+    .status-dot {
+      display: inline-flex; align-items: center; gap: 8px;
+      font-size: .8rem; color: var(--muted);
+      background: var(--surface2); padding: 5px 12px; border-radius: 20px;
+      border: 1px solid var(--border);
+    }
+    .dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: var(--muted); animation: pulse 2s infinite;
+    }
+    .dot.online { background: var(--green); box-shadow: 0 0 8px var(--green); }
+    .dot.error  { background: var(--red); animation: none; }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.3} }
+
+    /* ── Hero ── */
+    .hero {
+      text-align: center; padding: 40px 24px 28px;
+      max-width: 840px; position: relative; z-index: 1;
+    }
+    .hero h1 {
+      font-size: clamp(2rem, 4.5vw, 2.85rem);
+      font-weight: 800; letter-spacing: -1.2px; line-height: 1.2;
+      background: linear-gradient(135deg, #ffffff 15%, #c7d2fe 45%, var(--accent1) 70%, var(--accent3) 100%);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    }
+    .hero p {
+      margin-top: 12px; color: var(--muted); font-size: 1.02rem;
+      line-height: 1.65;
+    }
+    .tags { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; margin-top: 14px; }
+    .tag {
+      font-size: .72rem; font-weight: 600; padding: 4px 11px;
+      border-radius: 20px; letter-spacing: .4px; border: 1px solid;
+    }
+    .tag.indigo { color: #a5b4fc; border-color: rgba(99,102,241,.35); background: rgba(99,102,241,.08); }
+    .tag.cyan   { color: #67e8f9; border-color: rgba(6,182,212,.35);  background: rgba(6,182,212,.08); }
+    .tag.violet { color: #c4b5fd; border-color: rgba(139,92,246,.35); background: rgba(139,92,246,.08); }
+    .tag.amber  { color: #fde68a; border-color: rgba(245,158,11,.35); background: rgba(245,158,11,.08); }
+
+    /* ── Main card ── */
+    main {
+      width: 100%; max-width: 1100px;
+      padding: 0 24px 60px;
+      position: relative; z-index: 1;
+    }
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+      box-shadow: 0 24px 80px rgba(0,0,0,.6);
+    }
+
+    /* ── Drop zone ── */
+    .drop-zone {
+      border: 2px dashed var(--border);
+      border-radius: 12px;
+      margin: 24px;
+      padding: 38px 24px 30px;
+      text-align: center;
+      cursor: pointer;
+      transition: all .25s ease;
+      background: rgba(99,102,241,.025);
+      position: relative;
+    }
+    .drop-zone:hover, .drop-zone.drag-over {
+      border-color: var(--accent1);
+      background: rgba(99,102,241,.08);
+      transform: scale(1.003);
+    }
+    .drop-zone input[type=file] {
+      position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%;
+    }
+    .upload-icon {
+      width: 58px; height: 58px; margin: 0 auto 14px;
+      background: linear-gradient(135deg, rgba(99,102,241,.25), rgba(139,92,246,.25));
+      border-radius: 50%; display: flex; align-items: center; justify-content: center;
+      font-size: 26px; border: 1px solid rgba(99,102,241,.3);
+      transition: transform .25s;
+    }
+    .drop-zone:hover .upload-icon { transform: scale(1.1) translateY(-2px); }
+    .drop-zone h3 { font-size: 1.05rem; font-weight: 600; margin-bottom: 6px; }
+    .drop-zone p  { font-size: .84rem; color: var(--muted); }
+    .format-tags { display: flex; gap: 6px; justify-content: center; flex-wrap: wrap; margin-top: 12px; }
+    .format-tag {
+      font-size: .68rem; font-weight: 600; padding: 3px 8px;
+      background: var(--surface2); border: 1px solid var(--border);
+      border-radius: 6px; color: var(--muted);
+    }
+    .demo-btn-wrap {
+      margin-top: 16px;
+      display: flex; justify-content: center;
+    }
+    .btn-demo {
+      background: rgba(6,182,212,.12);
+      border: 1px solid rgba(6,182,212,.35);
+      color: #67e8f9;
+      font-size: .8rem;
+      font-weight: 600;
+      padding: 6px 14px;
+      border-radius: 20px;
+      cursor: pointer;
+      display: inline-flex; align-items: center; gap: 6px;
+      transition: all .2s ease;
+      position: relative; z-index: 2;
+    }
+    .btn-demo:hover {
+      background: rgba(6,182,212,.22);
+      border-color: #22d3ee;
+      transform: translateY(-1px);
+    }
+
+    /* ── File preview ── */
+    #file-info {
+      margin: 0 24px 0;
+      display: none;
+    }
+    .file-card {
+      background: var(--surface2); border: 1px solid var(--border);
+      border-radius: 10px; padding: 12px 16px;
+      display: flex; align-items: center; gap: 12px;
+    }
+    .file-icon {
+      width: 40px; height: 40px; border-radius: 8px; flex-shrink: 0;
+      background: linear-gradient(135deg, rgba(99,102,241,.25), rgba(6,182,212,.25));
+      display: flex; align-items: center; justify-content: center; font-size: 20px;
+    }
+    .file-meta { flex: 1; min-width: 0; }
+    .file-name {
+      font-size: .92rem; font-weight: 600;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .file-size { font-size: .76rem; color: var(--muted); margin-top: 2px; }
+    .btn-clear {
+      background: none; border: none; color: var(--muted); cursor: pointer;
+      font-size: 18px; padding: 4px; border-radius: 6px;
+      transition: color .2s, background .2s;
+    }
+    .btn-clear:hover { color: var(--red); background: rgba(239,68,68,.1); }
+
+    /* ── Action ── */
+    .action-row {
+      padding: 18px 24px 22px;
+      display: flex; gap: 12px; align-items: center;
+    }
+    .btn-denoise {
+      flex: 1; padding: 14px 24px;
+      background: linear-gradient(135deg, var(--accent1), var(--accent2));
+      border: none; border-radius: 10px; color: #fff;
+      font-size: 1.02rem; font-weight: 700; cursor: pointer;
+      letter-spacing: .3px;
+      transition: opacity .2s, transform .15s, box-shadow .2s;
+      box-shadow: 0 4px 20px rgba(99,102,241,.35);
+      display: flex; align-items: center; justify-content: center; gap: 10px;
+    }
+    .btn-denoise:hover:not(:disabled) {
+      opacity: .92; transform: translateY(-1px);
+      box-shadow: 0 8px 28px rgba(99,102,241,.45);
+    }
+    .btn-denoise:disabled { opacity: .45; cursor: not-allowed; transform: none; }
+
+    /* ── Progress ── */
+    #progress-section { display: none; margin: 0 24px 20px; }
+    .progress-bar-wrap {
+      background: var(--surface2); border: 1px solid var(--border);
+      border-radius: 8px; overflow: hidden; height: 6px; margin-bottom: 8px;
+    }
+    .progress-bar {
+      height: 100%; background: linear-gradient(90deg, var(--accent1), var(--accent3));
+      border-radius: 8px; width: 0%; transition: width .3s ease;
+    }
+    .progress-text {
+      font-size: .8rem; color: var(--muted); text-align: center;
+    }
+
+    /* ── Players Section ── */
+    #players-section {
+      display: none;
+      margin: 0 24px 24px;
+    }
+    .players-card {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 18px;
+    }
+    .players-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+    }
+    @media (max-width: 768px) {
+      .players-grid { grid-template-columns: 1fr; }
+    }
+    .player-box {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 14px;
+    }
+    .player-box.enhanced {
+      border-color: rgba(16,185,129,.35);
+      background: linear-gradient(180deg, rgba(16,185,129,.05), var(--surface));
+    }
+    .player-header {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-bottom: 10px;
+    }
+    .player-title {
+      font-size: .82rem; font-weight: 700; display: flex; align-items: center; gap: 6px;
+    }
+    .player-title.orig { color: #f87171; }
+    .player-title.enh  { color: #34d399; }
+    audio {
+      width: 100%; height: 38px; border-radius: 6px; outline: none;
+    }
+
+    .btn-download {
+      margin-top: 14px;
+      width: 100%; padding: 12px;
+      background: linear-gradient(135deg, var(--green), #059669);
+      border: none; border-radius: 8px; color: #fff;
+      font-size: .92rem; font-weight: 700; cursor: pointer;
+      transition: opacity .2s, transform .15s;
+      display: flex; align-items: center; justify-content: center; gap: 8px;
+      text-decoration: none;
+    }
+    .btn-download:hover { opacity: .9; transform: translateY(-1px); }
+
+    /* ── SPECTRAL ANALYSIS DASHBOARD ── */
+    #analysis-section {
+      display: none;
+      margin: 0 24px 28px;
+      border-top: 1px solid var(--border);
+      padding-top: 24px;
+    }
+    .analysis-header {
+      display: flex; align-items: center; justify-content: space-between;
+      flex-wrap: wrap; gap: 14px; margin-bottom: 18px;
+    }
+    .analysis-title-group h2 {
+      font-size: 1.18rem; font-weight: 800; display: flex; align-items: center; gap: 8px;
+      color: #fff;
+    }
+    .analysis-title-group p {
+      font-size: .8rem; color: var(--muted); margin-top: 3px;
+    }
+
+    /* ── Metrics Cards ── */
+    .metrics-bar {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+      gap: 10px;
+      margin-bottom: 20px;
+    }
+    .metric-card {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 10px 14px;
+    }
+    .metric-label {
+      font-size: .7rem; font-weight: 600; color: var(--muted);
+      text-transform: uppercase; letter-spacing: .5px; margin-bottom: 4px;
+    }
+    .metric-value {
+      font-size: 1.15rem; font-weight: 800; font-family: 'JetBrains Mono', monospace;
+      color: #fff;
+    }
+    .metric-value.cyan { color: #67e8f9; }
+    .metric-value.green { color: #34d399; }
+    .metric-value.yellow { color: #fbbf24; }
+
+    /* ── Tabs & Controls ── */
+    .controls-bar {
+      display: flex; align-items: center; justify-content: space-between;
+      flex-wrap: wrap; gap: 12px;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 8px 12px;
+      margin-bottom: 18px;
+    }
+    .tab-group {
+      display: flex; gap: 6px; flex-wrap: wrap;
+    }
+    .tab-btn {
+      background: transparent; border: 1px solid transparent;
+      color: var(--muted); font-size: .78rem; font-weight: 600;
+      padding: 6px 14px; border-radius: 7px; cursor: pointer;
+      transition: all .2s;
+    }
+    .tab-btn:hover { color: #fff; background: rgba(255,255,255,.05); }
+    .tab-btn.active {
+      background: var(--surface3); color: #fff;
+      border-color: var(--border-hl);
+      box-shadow: 0 2px 8px rgba(0,0,0,.3);
+    }
+
+    .selector-group {
+      display: flex; align-items: center; gap: 8px; font-size: .75rem; color: var(--muted);
+    }
+    select {
+      background: var(--surface); color: var(--text);
+      border: 1px solid var(--border); border-radius: 6px;
+      padding: 5px 10px; font-size: .76rem; font-weight: 500;
+      outline: none; cursor: pointer;
+    }
+
+    /* ── Spectrogram Canvas Containers ── */
+    .spectrogram-display {
+      display: flex; flex-direction: column; gap: 16px;
+    }
+    .spec-card {
+      background: #080b12;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 14px 16px 12px;
+      position: relative;
+    }
+    .spec-card-header {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-bottom: 8px;
+    }
+    .spec-card-title {
+      font-size: .84rem; font-weight: 700; display: flex; align-items: center; gap: 8px;
+    }
+    .spec-tag {
+      font-size: .68rem; font-weight: 700; padding: 2px 8px;
+      border-radius: 12px; text-transform: uppercase;
+    }
+    .spec-tag.red { background: rgba(239,68,68,.18); color: #fca5a5; border: 1px solid rgba(239,68,68,.3); }
+    .spec-tag.green { background: rgba(16,185,129,.18); color: #6ee7b7; border: 1px solid rgba(16,185,129,.3); }
+    .spec-tag.cyan { background: rgba(6,182,212,.18); color: #67e8f9; border: 1px solid rgba(6,182,212,.3); }
+
+    .canvas-wrapper {
+      position: relative;
+      width: 100%;
+      height: 180px;
+      background: #05070d;
+      border-radius: 8px;
+      overflow: hidden;
+      border: 1px solid #1c263c;
+    }
+    canvas.spec-canvas {
+      width: 100%;
+      height: 100%;
+      display: block;
+      cursor: crosshair;
+    }
+
+    /* Overlay tooltip */
+    .hover-tooltip {
+      position: absolute;
+      pointer-events: none;
+      background: rgba(10, 14, 23, 0.92);
+      border: 1px solid var(--border-hl);
+      border-radius: 6px;
+      padding: 4px 8px;
+      font-size: .72rem;
+      font-family: 'JetBrains Mono', monospace;
+      color: #67e8f9;
+      display: none;
+      z-index: 10;
+      white-space: nowrap;
+      box-shadow: 0 4px 12px rgba(0,0,0,.6);
+    }
+
+    /* Colorbar scale */
+    .spec-footer-row {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-top: 8px; font-size: .72rem; color: var(--muted);
+      font-family: 'JetBrains Mono', monospace;
+    }
+    .colorbar-wrap {
+      display: flex; align-items: center; gap: 8px;
+    }
+    .colorbar-bar {
+      width: 120px; height: 9px; border-radius: 4px; border: 1px solid #2a3754;
+    }
+
+    /* ── Power Spectrum Canvas Container ── */
+    #power-spectrum-container {
+      display: none;
+      background: #080b12;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 16px;
+    }
+    .power-canvas-wrapper {
+      position: relative;
+      width: 100%;
+      height: 280px;
+      background: #05070d;
+      border-radius: 8px;
+      border: 1px solid #1c263c;
+      overflow: hidden;
+    }
+    .spectrum-legend {
+      display: flex; gap: 16px; margin-top: 12px; justify-content: center; flex-wrap: wrap;
+      font-size: .78rem; font-weight: 600;
+    }
+    .legend-item { display: flex; align-items: center; gap: 6px; }
+    .legend-color { width: 14px; height: 4px; border-radius: 2px; }
+
+    /* ── Error ── */
+    #error-section { display: none; margin: 0 24px 20px; }
+    .error-card {
+      background: rgba(239,68,68,.08);
+      border: 1px solid rgba(239,68,68,.3);
+      border-radius: 10px; padding: 14px 18px;
+      display: flex; align-items: flex-start; gap: 12px;
+    }
+    .error-icon { font-size: 20px; flex-shrink: 0; }
+    .error-text h4 { font-size: .9rem; font-weight: 700; color: #fca5a5; }
+    .error-text p  { font-size: .8rem; color: var(--muted); margin-top: 4px; }
+
+    /* ── How it works ── */
+    .how-section {
+      max-width: 1100px; width: 100%;
+      padding: 0 24px 50px;
+      position: relative; z-index: 1;
+    }
+    .how-title {
+      font-size: .75rem; font-weight: 700; color: var(--muted);
+      text-transform: uppercase; letter-spacing: 1px;
+      text-align: center; margin-bottom: 20px;
+    }
+    .steps {
+      display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px;
+    }
+    @media (max-width: 700px) { .steps { grid-template-columns: 1fr; } }
+    .step {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 20px 18px;
+      text-align: center;
+      transition: transform .2s, border-color .2s;
+    }
+    .step:hover { transform: translateY(-3px); border-color: var(--accent1); }
+    .step-num {
+      width: 42px; height: 42px; border-radius: 50%; margin: 0 auto 12px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 18px; font-weight: 800;
+    }
+    .step-num.s1 { background: rgba(99,102,241,.15); color: var(--accent1); }
+    .step-num.s2 { background: rgba(139,92,246,.15); color: var(--accent2); }
+    .step-num.s3 { background: rgba(6,182,212,.15);  color: var(--accent3); }
+    .step h4 { font-size: .92rem; font-weight: 700; margin-bottom: 6px; }
+    .step p  { font-size: .8rem; color: var(--muted); line-height: 1.6; }
+
+    /* ── Footer ── */
+    footer {
+      color: var(--muted); font-size: .78rem; text-align: center;
+      padding: 0 0 30px; position: relative; z-index: 1;
+    }
+
+    .spinner {
+      width: 18px; height: 18px; border: 2px solid rgba(255,255,255,.3);
+      border-top-color: #fff; border-radius: 50%;
+      animation: spin .7s linear infinite; display: none;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+
+<div class="bg-glow"></div>
+
+<!-- Header -->
+<header>
+  <div class="logo">
+    <div class="logo-icon">🎙️</div>
+    DeNoiseAI
+  </div>
+  <div style="display:flex;gap:12px;align-items:center">
+    <span class="badge">DCCRN STFT</span>
+    <span class="status-dot" id="server-status">
+      <span class="dot" id="status-dot"></span>
+      <span id="status-text">Đang kiểm tra server...</span>
+    </span>
+  </div>
+</header>
+
+<!-- Hero -->
+<div class="hero">
+  <h1>Khử Nhiễu Âm Thanh & Phân Tích Phổ Tần</h1>
+  <p>Mô hình DCCRN Deep Learning khử nhiễu trong miền phổ phức (Complex STFT),<br/>kèm công cụ trực quan hóa phổ tần số 2D và đường đáp ứng công suất âm học.</p>
+  <div class="tags">
+    <span class="tag indigo">Complex LSTM</span>
+    <span class="tag violet">Phase-Aware</span>
+    <span class="tag cyan">STFT Spectrogram 2D</span>
+    <span class="tag amber">Power Spectrum FFT</span>
+  </div>
+</div>
+
+<!-- Main card -->
+<main>
+  <div class="card">
+
+    <!-- Drop Zone -->
+    <div class="drop-zone" id="drop-zone">
+      <input type="file" id="file-input" accept=".wav,.mp3,.flac,.ogg,.m4a"/>
+      <div class="upload-icon">🎵</div>
+      <h3>Kéo thả file âm thanh vào đây</h3>
+      <p>hoặc click để chọn file WAV, MP3, FLAC từ máy tính</p>
+      <div class="format-tags">
+        <span class="format-tag">WAV 16kHz</span>
+        <span class="format-tag">MP3</span>
+        <span class="format-tag">FLAC</span>
+        <span class="format-tag">OGG</span>
+      </div>
+      <div class="demo-btn-wrap">
+        <button type="button" class="btn-demo" id="btn-load-demo" onclick="loadDemoAudio(event)">
+          ⚡ Dùng file mẫu có nhiễu (demo_noisy.wav)
+        </button>
+      </div>
+    </div>
+
+    <!-- File info -->
+    <div id="file-info">
+      <div class="file-card">
+        <div class="file-icon">🎧</div>
+        <div class="file-meta">
+          <div class="file-name" id="file-name">—</div>
+          <div class="file-size" id="file-size">—</div>
+        </div>
+        <button class="btn-clear" onclick="clearFile()" title="Xóa file">✕</button>
+      </div>
+    </div>
+
+    <!-- Action -->
+    <div class="action-row">
+      <button class="btn-denoise" id="btn-denoise" onclick="denoiseAudio()" disabled>
+        <div class="spinner" id="spinner"></div>
+        <span id="btn-text">🎧 Khử Nhiễu Âm Thanh Ngay</span>
+      </button>
+    </div>
+
+    <!-- Progress -->
+    <div id="progress-section">
+      <div class="progress-bar-wrap">
+        <div class="progress-bar" id="progress-bar"></div>
+      </div>
+      <div class="progress-text" id="progress-text">Đang chuẩn bị...</div>
+    </div>
+
+    <!-- Error -->
+    <div id="error-section">
+      <div class="error-card">
+        <span class="error-icon">⚠️</span>
+        <div class="error-text">
+          <h4>Có lỗi xảy ra</h4>
+          <p id="error-msg">—</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Audio Players -->
+    <div id="players-section">
+      <div class="players-card">
+        <div class="players-grid">
+          <div class="player-box">
+            <div class="player-header">
+              <span class="player-title orig">🔴 Âm thanh gốc (Trước khi lọc)</span>
+              <span class="font-mono" style="font-size:.72rem;color:var(--muted)" id="orig-dur">—</span>
+            </div>
+            <audio id="audio-original" controls></audio>
+          </div>
+          <div class="player-box enhanced">
+            <div class="player-header">
+              <span class="player-title enh">🟢 Âm thanh đã khử nhiễu (Sau khi lọc)</span>
+              <span class="font-mono" style="font-size:.72rem;color:#34d399" id="enh-status">DCCRN Cleaned</span>
+            </div>
+            <audio id="audio-enhanced" controls></audio>
+          </div>
+        </div>
+        <a id="btn-download" class="btn-download" download>
+          ⬇ Tải file âm thanh đã khử nhiễu (.wav)
+        </a>
+      </div>
+    </div>
+
+    <!-- ── PHÂN TÍCH PHỔ TẦN SỐ ÂM THANH (SPECTRAL ANALYSIS) ── -->
+    <div id="analysis-section">
+      <div class="analysis-header">
+        <div class="analysis-title-group">
+          <h2>🔬 Phân Tích Phổ Tần Số Âm Thanh (Spectral Analysis)</h2>
+          <p>So sánh biến đổi miền tần số (STFT) trước và sau khi lọc để người có chuyên môn đánh giá chất lượng</p>
+        </div>
+      </div>
+
+      <!-- Metrics summary cards -->
+      <div class="metrics-bar">
+        <div class="metric-card">
+          <div class="metric-label">Tần số lấy mẫu</div>
+          <div class="metric-value cyan" id="m-sr">16,000 Hz</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-label">Tần số Nyquist</div>
+          <div class="metric-value" id="m-nyq">8,000 Hz</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-label">Thời lượng</div>
+          <div class="metric-value font-mono" id="m-dur">0.00 s</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-label">Giảm tạp âm ước tính</div>
+          <div class="metric-value green" id="m-snr">—</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-label">Bảo toàn dải tiếng nói</div>
+          <div class="metric-value yellow" id="m-voice">—</div>
+        </div>
+      </div>
+
+      <!-- Controls: Tabs & Colormaps -->
+      <div class="controls-bar">
+        <div class="tab-group">
+          <button class="tab-btn active" id="tab-spec" onclick="switchView('spec')">🎛️ Phổ Thời Gian - Tần Số (Spectrogram 2D)</button>
+          <button class="tab-btn" id="tab-power" onclick="switchView('power')">📈 Phổ Công Suất FFT (Frequency Response)</button>
+          <button class="tab-btn" id="tab-diff" onclick="switchView('diff')">🌓 Phổ Tạp Âm Bị Loại Bỏ (Noise Removed)</button>
+        </div>
+        <div class="selector-group">
+          <span>Màu phổ:</span>
+          <select id="colormap-select" onchange="changeColormap(this.value)">
+            <option value="inferno" selected>Inferno (Khoa học)</option>
+            <option value="viridis">Viridis</option>
+            <option value="plasma">Plasma</option>
+            <option value="cyber">Cyber Neon</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- View 1: 2D Spectrogram Displays (Stacked Comparison) -->
+      <div id="spectrogram-views" class="spectrogram-display">
+        <!-- Original Spectrogram -->
+        <div class="spec-card">
+          <div class="spec-card-header">
+            <div class="spec-card-title">
+              <span style="color:#f87171">🔴 Phổ tần gốc (Trước khi lọc — Có tiếng ồn & tạp âm)</span>
+              <span class="spec-tag red">NOISY INPUT</span>
+            </div>
+            <span class="font-mono" style="font-size:.72rem;color:var(--muted)">0 Hz — 8,000 Hz</span>
+          </div>
+          <div class="canvas-wrapper" id="wrap-orig">
+            <canvas id="canvas-spec-orig" class="spec-canvas"></canvas>
+            <div id="tip-orig" class="hover-tooltip"></div>
+          </div>
+          <div class="spec-footer-row">
+            <span>Trục hoành: Thời gian (s) · Trục tung: Tần số (Hz)</span>
+            <div class="colorbar-wrap">
+              <span>-80 dB</span>
+              <div class="colorbar-bar" id="colorbar-orig"></div>
+              <span>0 dB</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Denoised Spectrogram -->
+        <div class="spec-card" id="spec-card-enh" style="display:none;">
+          <div class="spec-card-header">
+            <div class="spec-card-title">
+              <span style="color:#34d399">🟢 Phổ tần đã khử nhiễu (Sau khi lọc — DCCRN Cleaned)</span>
+              <span class="spec-tag green">DENOISED OUTPUT</span>
+            </div>
+            <span class="font-mono" style="font-size:.72rem;color:#34d399">Tạp âm nền đã bị dập tắt</span>
+          </div>
+          <div class="canvas-wrapper" id="wrap-enh">
+            <canvas id="canvas-spec-enh" class="spec-canvas"></canvas>
+            <div id="tip-enh" class="hover-tooltip"></div>
+          </div>
+          <div class="spec-footer-row">
+            <span>Dải formant giọng nói (300Hz-3.4kHz) được giữ nguyên vẹn</span>
+            <div class="colorbar-wrap">
+              <span>-80 dB</span>
+              <div class="colorbar-bar" id="colorbar-enh"></div>
+              <span>0 dB</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Difference Spectrogram (Noise removed) -->
+        <div class="spec-card" id="spec-card-diff" style="display:none;">
+          <div class="spec-card-header">
+            <div class="spec-card-title">
+              <span style="color:#67e8f9">🌓 Phổ thành phần tạp âm đã bị mô hình triệt tiêu</span>
+              <span class="spec-tag cyan">NOISE RESIDUAL</span>
+            </div>
+            <span class="font-mono" style="font-size:.72rem;color:var(--muted)">|X_noisy| − |X_clean|</span>
+          </div>
+          <div class="canvas-wrapper" id="wrap-diff">
+            <canvas id="canvas-spec-diff" class="spec-canvas"></canvas>
+            <div id="tip-diff" class="hover-tooltip"></div>
+          </div>
+          <div class="spec-footer-row">
+            <span>Năng lượng tạp âm nền (tiếng quạt, gió, ù, rít) được bóc tách chính xác</span>
+            <div class="colorbar-wrap">
+              <span>Thấp</span>
+              <div class="colorbar-bar" id="colorbar-diff"></div>
+              <span>Cao</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- View 2: Power Spectrum FFT (Frequency Response Curve) -->
+      <div id="power-spectrum-container">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+          <h3 style="font-size:.92rem;font-weight:700;">Đồ thị Phổ Biên Độ Trung Bình Theo Tần Số (Power Spectral Density - PSD)</h3>
+          <span class="font-mono" style="font-size:.72rem;color:var(--muted)">Độ phân giải FFT: 512 bins (~31.25 Hz/bin)</span>
+        </div>
+        <div class="power-canvas-wrapper" id="wrap-power">
+          <canvas id="canvas-power" style="width:100%;height:100%;display:block;cursor:crosshair;"></canvas>
+          <div id="tip-power" class="hover-tooltip"></div>
+        </div>
+        <div class="spectrum-legend">
+          <div class="legend-item">
+            <div class="legend-color" style="background:#f87171;"></div>
+            <span style="color:#f87171">Phổ tín hiệu gốc (Trước lọc - chứa cả nhiễu)</span>
+          </div>
+          <div class="legend-item" id="legend-enh-item" style="display:none;">
+            <div class="legend-color" style="background:#34d399;"></div>
+            <span style="color:#34d399">Phổ tín hiệu đã lọc (Sau lọc DCCRN)</span>
+          </div>
+          <div class="legend-item" id="legend-diff-item" style="display:none;">
+            <div class="legend-color" style="background:rgba(6,182,212,.4);border:1px dashed #22d3ee;"></div>
+            <span style="color:#67e8f9">Vùng suy giảm tạp âm (Noise Attenuation)</span>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+  </div>
+</main>
+
+<!-- How it works -->
+<div class="how-section">
+  <div class="how-title">Cơ chế khử nhiễu Deep Learning DCCRN</div>
+  <div class="steps">
+    <div class="step">
+      <div class="step-num s1">1</div>
+      <h4>Phân Tích STFT Phức</h4>
+      <p>Chuyển đổi tín hiệu thời gian sang ma trận spectrogram phức gồm cả Biên độ (Magnitude) và Pha (Phase)</p>
+    </div>
+    <div class="step">
+      <div class="step-num s2">2</div>
+      <h4>DCCRN Complex Filtering</h4>
+      <p>Mạng tích chập phức kết hợp LSTM học Complex Ratio Mask (cRM) tách lọc tiếng nói khỏi mọi dạng tạp âm</p>
+    </div>
+    <div class="step">
+      <div class="step-num s3">3</div>
+      <h4>Tái Tạo iSTFT Siêu Sạch</h4>
+      <p>Biến đổi Fourier ngược phục hồi âm thanh nguyên vẹn với tỷ lệ méo tiếng cực thấp và SNR cải thiện vượt bậc</p>
+    </div>
+  </div>
+</div>
+
+<footer>
+  DeNoiseAI · DCCRN Deep Complex Convolutional Recurrent Network · Interspeech 2020
+</footer>
+
+<script>
+  const API = window.location.origin;
+  let selectedFile = null;
+  let originalAudioBuffer = null;
+  let enhancedAudioBuffer = null;
+  let originalObjectURL = null;
+  let enhancedObjectURL = null;
+  let currentColormap = 'inferno';
+  let currentView = 'spec';
+
+  // Spectrogram computed caches
+  let origSpecData = null; // { frames, freqs, dbMatrix, minDb, maxDb, avgPower, duration, sr }
+  let enhSpecData  = null;
+  let diffSpecData = null;
+
+  // Animation frame request for playheads
+  let animId = null;
+
+  // ── Color palettes (LUT: 256 colors) ──
+  const COLOR_PALETTES = {
+    inferno: [
+      [0,0,4], [40,11,84], [101,21,110], [159,42,99],
+      [212,72,66], [245,125,21], [250,193,39], [240,249,133], [252,255,164]
+    ],
+    viridis: [
+      [68,1,84], [59,82,139], [33,145,140], [94,201,98], [253,231,37]
+    ],
+    plasma: [
+      [13,8,135], [126,3,168], [204,71,120], [248,149,64], [240,249,33]
+    ],
+    cyber: [
+      [5,10,24], [28,25,92], [90,34,139], [34,166,240], [103,232,249], [255,255,255]
+    ]
+  };
+
+  function interpolateColor(stops, t) {
+    t = Math.max(0, Math.min(1, t));
+    const n = stops.length - 1;
+    const p = t * n;
+    const i = Math.min(Math.floor(p), n - 1);
+    const frac = p - i;
+    const c1 = stops[i];
+    const c2 = stops[i + 1];
+    return [
+      Math.round(c1[0] + frac * (c2[0] - c1[0])),
+      Math.round(c1[1] + frac * (c2[1] - c1[1])),
+      Math.round(c1[2] + frac * (c2[2] - c1[2]))
+    ];
+  }
+
+  function generateLUT(paletteName) {
+    const stops = COLOR_PALETTES[paletteName] || COLOR_PALETTES.inferno;
+    const lut = new Uint8Array(256 * 3);
+    for (let i = 0; i < 256; i++) {
+      const rgb = interpolateColor(stops, i / 255);
+      lut[i * 3]     = rgb[0];
+      lut[i * 3 + 1] = rgb[1];
+      lut[i * 3 + 2] = rgb[2];
+    }
+    return lut;
+  }
+
+  let activeLUT = generateLUT('inferno');
+
+  function updateColorbarStyles() {
+    const stops = COLOR_PALETTES[currentColormap];
+    const gradStr = stops.map((c, idx) => `rgb(${c.join(',')}) ${(idx / (stops.length - 1) * 100).toFixed(0)}%`).join(', ');
+    const cssGrad = `linear-gradient(to right, ${gradStr})`;
+    ['colorbar-orig', 'colorbar-enh', 'colorbar-diff'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.style.background = cssGrad;
+    });
+  }
+  updateColorbarStyles();
+
+  function changeColormap(val) {
+    currentColormap = val;
+    activeLUT = generateLUT(val);
+    updateColorbarStyles();
+    renderAllSpectrograms();
+  }
+
+  // ── Server Health check ──
+  async function checkHealth() {
+    const dot  = document.getElementById('status-dot');
+    const text = document.getElementById('status-text');
+    try {
+      const res = await fetch(`${API}/health`, { signal: AbortSignal.timeout(3000) });
+      const data = await res.json();
+      if (data.status === 'ok' && data.model_loaded) {
+        dot.className  = 'dot online';
+        const ckpt = data.checkpoint ? data.checkpoint.split('/').pop() : 'model';
+        const ep = (data.epoch !== null && data.epoch !== undefined && data.epoch !== '?') ? ` (Epoch ${data.epoch})` : '';
+        text.textContent = `${ckpt}${ep} · ${data.device.toUpperCase()}`;
+      } else {
+        dot.className  = 'dot error';
+        text.textContent = 'Model chưa load';
+      }
+    } catch {
+      dot.className  = 'dot error';
+      text.textContent = 'Server chưa khởi động';
+    }
+  }
+  checkHealth();
+  setInterval(checkHealth, 5000);
+
+  // ── Drag & Drop ──
+  const dropZone = document.getElementById('drop-zone');
+  const fileInput = document.getElementById('file-input');
+
+  dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
+  dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+  dropZone.addEventListener('drop', e => {
+    e.preventDefault(); dropZone.classList.remove('drag-over');
+    if (e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]);
+  });
+  fileInput.addEventListener('change', e => {
+    if (e.target.files[0]) handleFile(e.target.files[0]);
+  });
+
+  // ── Fast Demo Loader ──
+  async function loadDemoAudio(event) {
+    if (event) event.stopPropagation();
+    try {
+      const res = await fetch(`${API}/static/demo_noisy.wav`);
+      if (!res.ok) throw new Error('Không tìm thấy file demo_noisy.wav');
+      const blob = await res.blob();
+      const file = new File([blob], 'demo_noisy_speech.wav', { type: 'audio/wav' });
+      handleFile(file);
+    } catch (err) {
+      alert('Không tải được file mẫu: ' + err.message);
+    }
+  }
+
+  async function handleFile(file) {
+    selectedFile = file;
+    document.getElementById('file-name').textContent = file.name;
+    document.getElementById('file-size').textContent = formatBytes(file.size);
+    document.getElementById('file-info').style.display = 'block';
+    document.getElementById('btn-denoise').disabled = false;
+
+    // Reset enhanced states
+    enhancedAudioBuffer = null;
+    enhSpecData = null;
+    diffSpecData = null;
+    document.getElementById('spec-card-enh').style.display = 'none';
+    document.getElementById('spec-card-diff').style.display = 'none';
+    document.getElementById('legend-enh-item').style.display = 'none';
+    document.getElementById('legend-diff-item').style.display = 'none';
+    document.getElementById('m-snr').textContent = 'Chưa lọc';
+    document.getElementById('m-voice').textContent = 'Chưa lọc';
+
+    // Set audio preview
+    if (originalObjectURL) URL.revokeObjectURL(originalObjectURL);
+    originalObjectURL = URL.createObjectURL(file);
+    const audioOrig = document.getElementById('audio-original');
+    audioOrig.src = originalObjectURL;
+
+    document.getElementById('players-section').style.display = 'block';
+    document.getElementById('analysis-section').style.display = 'block';
+
+    // Decode and compute original Spectrogram
+    const arrayBuffer = await file.arrayBuffer();
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    originalAudioBuffer = await ctx.decodeAudioData(arrayBuffer);
+    ctx.close();
+
+    document.getElementById('m-sr').textContent = originalAudioBuffer.sampleRate.toLocaleString() + ' Hz';
+    document.getElementById('m-nyq').textContent = (originalAudioBuffer.sampleRate / 2).toLocaleString() + ' Hz';
+    document.getElementById('m-dur').textContent = originalAudioBuffer.duration.toFixed(2) + ' s';
+    document.getElementById('orig-dur').textContent = originalAudioBuffer.duration.toFixed(2) + 's';
+
+    // Compute STFT for Original
+    origSpecData = computeSTFT(originalAudioBuffer);
+    renderSpectrogram('canvas-spec-orig', origSpecData);
+    renderPowerSpectrum();
+
+    setupPlayheadSync();
+  }
+
+  function clearFile() {
+    selectedFile = null;
+    fileInput.value = '';
+    originalAudioBuffer = null;
+    enhancedAudioBuffer = null;
+    origSpecData = null;
+    enhSpecData = null;
+    diffSpecData = null;
+    document.getElementById('file-info').style.display = 'none';
+    document.getElementById('players-section').style.display = 'none';
+    document.getElementById('analysis-section').style.display = 'none';
+    document.getElementById('btn-denoise').disabled = true;
+    if (animId) cancelAnimationFrame(animId);
+  }
+
+  // ── DSP & FFT IMPLEMENTATION ──
+  function computeSTFT(audioBuf, nFft = 512, hopLength = 256) {
+    const rawData = audioBuf.getChannelData(0);
+    const sampleRate = audioBuf.sampleRate;
+    const totalSamples = rawData.length;
+
+    // Hann Window
+    const win = new Float32Array(nFft);
+    for (let i = 0; i < nFft; i++) {
+      win[i] = 0.5 * (1 - Math.cos((2 * Math.PI * i) / (nFft - 1)));
+    }
+
+    const numFrames = Math.max(1, Math.floor((totalSamples - nFft) / hopLength) + 1);
+    const numBins = (nFft >> 1) + 1; // 257 bins
+    const dbMatrix = new Float32Array(numFrames * numBins);
+    const magMatrix = new Float32Array(numFrames * numBins);
+    const avgPower = new Float32Array(numBins);
+
+    const real = new Float32Array(nFft);
+    const imag = new Float32Array(nFft);
+
+    let maxDb = -999;
+    let minDb = 999;
+
+    for (let f = 0; f < numFrames; f++) {
+      const offset = f * hopLength;
+      // Windowing
+      for (let i = 0; i < nFft; i++) {
+        real[i] = (offset + i < totalSamples ? rawData[offset + i] : 0) * win[i];
+        imag[i] = 0;
+      }
+
+      // FFT
+      cooleyTukeyFFT(real, imag);
+
+      // Magnitudes
+      for (let k = 0; k < numBins; k++) {
+        const mag = Math.sqrt(real[k] * real[k] + imag[k] * imag[k]);
+        magMatrix[f * numBins + k] = mag;
+        const power = mag * mag;
+        avgPower[k] += power;
+
+        const db = 20 * Math.log10(Math.max(mag, 1e-5));
+        dbMatrix[f * numBins + k] = db;
+        if (db > maxDb) maxDb = db;
+        if (db < minDb) minDb = db;
+      }
+    }
+
+    // Average power in dB
+    const avgPowerDb = new Float32Array(numBins);
+    for (let k = 0; k < numBins; k++) {
+      avgPowerDb[k] = 10 * Math.log10(Math.max(avgPower[k] / numFrames, 1e-8));
+    }
+
+    return {
+      numFrames,
+      numBins,
+      dbMatrix,
+      magMatrix,
+      avgPowerDb,
+      minDb: Math.max(minDb, maxDb - 80), // 80 dB dynamic range
+      maxDb,
+      duration: audioBuf.duration,
+      sampleRate
+    };
+  }
+
+  function cooleyTukeyFFT(re, im) {
+    const n = re.length;
+    let j = 0;
+    for (let i = 0; i < n - 1; i++) {
+      if (i < j) {
+        let tr = re[i]; re[i] = re[j]; re[j] = tr;
+        let ti = im[i]; im[i] = im[j]; im[j] = ti;
+      }
+      let k = n >> 1;
+      while (k <= j) {
+        j -= k;
+        k >>= 1;
+      }
+      j += k;
+    }
+    for (let len = 2; len <= n; len <<= 1) {
+      const half = len >> 1;
+      const angle = (-2 * Math.PI) / len;
+      const wStepR = Math.cos(angle);
+      const wStepI = Math.sin(angle);
+      for (let i = 0; i < n; i += len) {
+        let wR = 1.0, wI = 0.0;
+        for (let k = 0; k < half; k++) {
+          const uR = re[i + k];
+          const uI = im[i + k];
+          const vR = re[i + k + half] * wR - im[i + k + half] * wI;
+          const vI = re[i + k + half] * wI + im[i + k + half] * wR;
+          re[i + k] = uR + vR;
+          im[i + k] = uI + vI;
+          re[i + k + half] = uR - vR;
+          im[i + k + half] = uI - vI;
+          const nextWR = wR * wStepR - wI * wStepI;
+          wI = wR * wStepI + wI * wStepR;
+          wR = nextWR;
+        }
+      }
+    }
+  }
+
+  // ── SPECTROGRAM RENDERER ──
+  const playheadTimes = { orig: 0, enh: 0 };
+
+  function renderSpectrogram(canvasId, specData, playheadTime = 0) {
+    if (!specData) return;
+    const canvas = document.getElementById(canvasId);
+    if (!canvas) return;
+
+    const rect = canvas.getBoundingClientRect();
+    const dpr = window.devicePixelRatio || 1;
+    const W = Math.floor(rect.width * dpr);
+    const H = Math.floor(rect.height * dpr);
+
+    if (canvas.width !== W || canvas.height !== H) {
+      canvas.width = W;
+      canvas.height = H;
+    }
+
+    const ctx = canvas.getContext('2d');
+    const { numFrames, numBins, dbMatrix, minDb, maxDb, duration, sampleRate } = specData;
+
+    // Margins for axes
+    const padL = Math.round(52 * dpr);
+    const padR = Math.round(12 * dpr);
+    const padT = Math.round(10 * dpr);
+    const padB = Math.round(24 * dpr);
+
+    const plotW = Math.max(10, W - padL - padR);
+    const plotH = Math.max(10, H - padT - padB);
+
+    // 1. Render spectrogram heatmap onto offscreen canvas
+    const offCanvas = document.createElement('canvas');
+    offCanvas.width = numFrames;
+    offCanvas.height = numBins;
+    const offCtx = offCanvas.getContext('2d');
+    const imgData = offCtx.createImageData(numFrames, numBins);
+    const data = imgData.data;
+
+    const range = (maxDb - minDb) || 1;
+
+    for (let f = 0; f < numFrames; f++) {
+      for (let k = 0; k < numBins; k++) {
+        // Invert Y: k=0 (0 Hz) at bottom, k=numBins-1 (Nyquist) at top
+        const row = numBins - 1 - k;
+        const pIdx = (row * numFrames + f) * 4;
+
+        const db = dbMatrix[f * numBins + k];
+        const norm = Math.max(0, Math.min(1, (db - minDb) / range));
+        const lutIdx = Math.floor(norm * 255) * 3;
+
+        data[pIdx]     = activeLUT[lutIdx];
+        data[pIdx + 1] = activeLUT[lutIdx + 1];
+        data[pIdx + 2] = activeLUT[lutIdx + 2];
+        data[pIdx + 3] = 255;
+      }
+    }
+    offCtx.putImageData(imgData, 0, 0);
+
+    // 2. Clear & Draw background
+    ctx.fillStyle = '#060911';
+    ctx.fillRect(0, 0, W, H);
+
+    // 3. Draw interpolated heatmap
+    ctx.imageSmoothingEnabled = true;
+    ctx.drawImage(offCanvas, padL, padT, plotW, plotH);
+
+    // 4. Draw frequency grid lines & ticks
+    ctx.lineWidth = 1 * dpr;
+    ctx.strokeStyle = 'rgba(255,255,255,0.08)';
+    ctx.fillStyle = '#64748b';
+    ctx.font = `${Math.round(10 * dpr)}px 'JetBrains Mono', monospace`;
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'middle';
+
+    const nyquist = sampleRate / 2;
+    const freqTicks = [0, 1000, 2000, 4000, 6000, 8000].filter(f => f <= nyquist);
+    if (!freqTicks.includes(nyquist)) freqTicks.push(nyquist);
+
+    freqTicks.forEach(f => {
+      const yNorm = 1.0 - (f / nyquist);
+      const y = padT + yNorm * plotH;
+
+      // Grid line
+      ctx.beginPath();
+      ctx.moveTo(padL, y);
+      ctx.lineTo(padL + plotW, y);
+      ctx.stroke();
+
+      // Label
+      const lbl = f >= 1000 ? `${(f / 1000).toFixed(0)}k` : `${f}`;
+      ctx.fillText(lbl + ' Hz', padL - Math.round(6 * dpr), y);
+    });
+
+    // 5. Draw Time grid lines & ticks
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    const timeStep = duration > 5 ? 1.0 : (duration > 2 ? 0.5 : 0.25);
+
+    for (let t = 0; t <= duration; t += timeStep) {
+      const xNorm = t / duration;
+      const x = padL + xNorm * plotW;
+
+      ctx.beginPath();
+      ctx.moveTo(x, padT);
+      ctx.lineTo(x, padT + plotH);
+      ctx.stroke();
+
+      ctx.fillText(`${t.toFixed(1)}s`, x, padT + plotH + Math.round(6 * dpr));
+    }
+
+    // 6. Draw Playhead cursor if playing
+    if (playheadTime > 0 && playheadTime <= duration) {
+      const px = padL + (playheadTime / duration) * plotW;
+      ctx.save();
+      // Glow
+      ctx.shadowColor = '#22d3ee';
+      ctx.shadowBlur = 10 * dpr;
+      ctx.strokeStyle = '#67e8f9';
+      ctx.lineWidth = 2 * dpr;
+      ctx.beginPath();
+      ctx.moveTo(px, padT);
+      ctx.lineTo(px, padT + plotH);
+      ctx.stroke();
+
+      // Cursor arrow
+      ctx.fillStyle = '#67e8f9';
+      ctx.beginPath();
+      ctx.moveTo(px - 5 * dpr, padT);
+      ctx.lineTo(px + 5 * dpr, padT);
+      ctx.lineTo(px, padT + 8 * dpr);
+      ctx.fill();
+      ctx.restore();
+    }
+  }
+
+  // ── HOVER INSPECTOR FOR SPECTROGRAMS ──
+  function setupHoverInspector(wrapId, canvasId, tipId, getSpecData) {
+    const wrap = document.getElementById(wrapId);
+    const canvas = document.getElementById(canvasId);
+    const tip = document.getElementById(tipId);
+
+    canvas.addEventListener('mousemove', e => {
+      const spec = getSpecData();
+      if (!spec) return;
+
+      const rect = canvas.getBoundingClientRect();
+      const dpr = window.devicePixelRatio || 1;
+      const padL = 52, padR = 12, padT = 10, padB = 24;
+      const plotW = rect.width - padL - padR;
+      const plotH = rect.height - padT - padB;
+
+      const mouseX = e.clientX - rect.left - padL;
+      const mouseY = e.clientY - rect.top - padT;
+
+      if (mouseX < 0 || mouseX > plotW || mouseY < 0 || mouseY > plotH) {
+        tip.style.display = 'none';
+        return;
+      }
+
+      const ratioX = mouseX / plotW;
+      const ratioY = 1.0 - (mouseY / plotH);
+
+      const time = ratioX * spec.duration;
+      const freq = Math.round(ratioY * (spec.sampleRate / 2));
+
+      const frameIdx = Math.min(spec.numFrames - 1, Math.max(0, Math.floor(ratioX * spec.numFrames)));
+      const binIdx   = Math.min(spec.numBins - 1, Math.max(0, Math.floor(ratioY * spec.numBins)));
+      const db = spec.dbMatrix[frameIdx * spec.numBins + binIdx];
+
+      tip.innerHTML = `⏱ <b>${time.toFixed(2)}s</b> &nbsp;|&nbsp; 🔊 <b>${freq.toLocaleString()} Hz</b> &nbsp;|&nbsp; ⚡ <b>${db.toFixed(1)} dB</b>`;
+      tip.style.left = `${Math.min(rect.width - 200, Math.max(padL, e.clientX - rect.left - 80))}px`;
+      tip.style.top = `${Math.max(4, e.clientY - rect.top - 36)}px`;
+      tip.style.display = 'block';
+    });
+
+    canvas.addEventListener('mouseleave', () => { tip.style.display = 'none'; });
+  }
+
+  setupHoverInspector('wrap-orig', 'canvas-spec-orig', 'tip-orig', () => origSpecData);
+  setupHoverInspector('wrap-enh',  'canvas-spec-enh',  'tip-enh',  () => enhSpecData);
+  setupHoverInspector('wrap-diff', 'canvas-spec-diff', 'tip-diff', () => diffSpecData);
+
+  // ── POWER SPECTRUM (PSD / FFT) GRAPH RENDERER ──
+  function renderPowerSpectrum() {
+    if (!origSpecData) return;
+    const canvas = document.getElementById('canvas-power');
+    const rect = canvas.getBoundingClientRect();
+    const dpr = window.devicePixelRatio || 1;
+    const W = Math.floor(rect.width * dpr);
+    const H = Math.floor(rect.height * dpr);
+
+    if (canvas.width !== W || canvas.height !== H) {
+      canvas.width = W;
+      canvas.height = H;
+    }
+
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#060911';
+    ctx.fillRect(0, 0, W, H);
+
+    const padL = Math.round(54 * dpr);
+    const padR = Math.round(20 * dpr);
+    const padT = Math.round(24 * dpr);
+    const padB = Math.round(36 * dpr);
+
+    const plotW = Math.max(10, W - padL - padR);
+    const plotH = Math.max(10, H - padT - padB);
+
+    const numBins = origSpecData.numBins;
+    const nyquist = origSpecData.sampleRate / 2;
+
+    const minDb = -90;
+    const maxDb = 0;
+    const dbRange = maxDb - minDb;
+
+    function getY(db) {
+      const norm = (db - minDb) / dbRange;
+      return padT + (1.0 - Math.max(0, Math.min(1, norm))) * plotH;
+    }
+    function getX(bin) {
+      return padL + (bin / (numBins - 1)) * plotW;
+    }
+
+    // Voice Formant Region highlight (300Hz to 3400Hz)
+    const bin300  = Math.round((300 / nyquist) * (numBins - 1));
+    const bin3400 = Math.round((3400 / nyquist) * (numBins - 1));
+    const x300    = getX(bin300);
+    const x3400   = getX(bin3400);
+
+    ctx.fillStyle = 'rgba(99,102,241,0.06)';
+    ctx.fillRect(x300, padT, x3400 - x300, plotH);
+    ctx.fillStyle = '#818cf8';
+    ctx.font = `${Math.round(9 * dpr)}px 'Inter', sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.fillText('🎙️ Dải Giọng Nói Chính (300Hz - 3.4kHz)', (x300 + x3400) / 2, padT + Math.round(14 * dpr));
+
+    // High frequency noise highlight (>4kHz)
+    const bin4000 = Math.round((4000 / nyquist) * (numBins - 1));
+    const x4000   = getX(bin4000);
+    ctx.fillStyle = 'rgba(239,68,68,0.04)';
+    ctx.fillRect(x4000, padT, (padL + plotW) - x4000, plotH);
+    ctx.fillStyle = '#f87171';
+    ctx.fillText('⚡ Tạp âm tần số cao (>4kHz)', (x4000 + padL + plotW) / 2, padT + Math.round(14 * dpr));
+
+    // Draw horizontal dB grid lines
+    ctx.lineWidth = 1 * dpr;
+    ctx.strokeStyle = 'rgba(255,255,255,0.08)';
+    ctx.fillStyle = '#64748b';
+    ctx.font = `${Math.round(10 * dpr)}px 'JetBrains Mono', monospace`;
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'middle';
+
+    for (let db = minDb; db <= maxDb; db += 15) {
+      const y = getY(db);
+      ctx.beginPath();
+      ctx.moveTo(padL, y);
+      ctx.lineTo(padL + plotW, y);
+      ctx.stroke();
+      ctx.fillText(`${db} dB`, padL - Math.round(6 * dpr), y);
+    }
+
+    // Draw vertical frequency grid lines
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    const freqs = [0, 1000, 2000, 3000, 4000, 5000, 6000, 7000, 8000].filter(f => f <= nyquist);
+    freqs.forEach(f => {
+      const bin = Math.round((f / nyquist) * (numBins - 1));
+      const x = getX(bin);
+      ctx.beginPath();
+      ctx.moveTo(x, padT);
+      ctx.lineTo(x, padT + plotH);
+      ctx.stroke();
+      ctx.fillText(f >= 1000 ? `${f / 1000}k` : `${f}`, x, padT + plotH + Math.round(8 * dpr));
+    });
+
+    // If both Original and Enhanced exist, shade difference area
+    if (enhSpecData) {
+      ctx.beginPath();
+      for (let k = 0; k < numBins; k++) {
+        const x = getX(k);
+        const y = getY(origSpecData.avgPowerDb[k]);
+        if (k === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+      }
+      for (let k = numBins - 1; k >= 0; k--) {
+        const x = getX(k);
+        const y = getY(enhSpecData.avgPowerDb[k]);
+        ctx.lineTo(x, y);
+      }
+      ctx.closePath();
+      const fillGrad = ctx.createLinearGradient(0, padT, 0, padT + plotH);
+      fillGrad.addColorStop(0, 'rgba(6,182,212,0.3)');
+      fillGrad.addColorStop(1, 'rgba(16,185,129,0.05)');
+      ctx.fillStyle = fillGrad;
+      ctx.fill();
+    }
+
+    // Plot Original Curve (Red)
+    ctx.save();
+    ctx.lineWidth = 2 * dpr;
+    ctx.strokeStyle = '#f87171';
+    ctx.shadowColor = 'rgba(239,68,68,0.4)';
+    ctx.shadowBlur = 6 * dpr;
+    ctx.beginPath();
+    for (let k = 0; k < numBins; k++) {
+      const x = getX(k);
+      const y = getY(origSpecData.avgPowerDb[k]);
+      if (k === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+    ctx.restore();
+
+    // Plot Enhanced Curve (Green)
+    if (enhSpecData) {
+      ctx.save();
+      ctx.lineWidth = 2.2 * dpr;
+      ctx.strokeStyle = '#34d399';
+      ctx.shadowColor = 'rgba(52,211,153,0.6)';
+      ctx.shadowBlur = 8 * dpr;
+      ctx.beginPath();
+      for (let k = 0; k < numBins; k++) {
+        const x = getX(k);
+        const y = getY(enhSpecData.avgPowerDb[k]);
+        if (k === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+      ctx.restore();
+    }
+  }
+
+  // Hover on Power Spectrum
+  const powerCanvas = document.getElementById('canvas-power');
+  const powerTip = document.getElementById('tip-power');
+  powerCanvas.addEventListener('mousemove', e => {
+    if (!origSpecData) return;
+    const rect = powerCanvas.getBoundingClientRect();
+    const padL = 54, padR = 20, padT = 24, padB = 36;
+    const plotW = rect.width - padL - padR;
+    const mouseX = e.clientX - rect.left - padL;
+    if (mouseX < 0 || mouseX > plotW) { powerTip.style.display = 'none'; return; }
+
+    const ratioX = mouseX / plotW;
+    const nyquist = origSpecData.sampleRate / 2;
+    const freq = Math.round(ratioX * nyquist);
+    const binIdx = Math.min(origSpecData.numBins - 1, Math.max(0, Math.floor(ratioX * origSpecData.numBins)));
+
+    const origDb = origSpecData.avgPowerDb[binIdx].toFixed(1);
+    let enhTxt = '';
+    if (enhSpecData) {
+      const enhDb = enhSpecData.avgPowerDb[binIdx].toFixed(1);
+      const diff = (origDb - enhDb).toFixed(1);
+      enhTxt = ` | Sau lọc: <b>${enhDb} dB</b> (Giảm: <b>${diff > 0 ? '-' + diff : diff} dB</b>)`;
+    }
+
+    powerTip.innerHTML = `🔊 <b>${freq.toLocaleString()} Hz</b> | Gốc: <b>${origDb} dB</b>${enhTxt}`;
+    powerTip.style.left = `${Math.min(rect.width - 240, Math.max(padL, e.clientX - rect.left - 100))}px`;
+    powerTip.style.top = `${Math.max(6, e.clientY - rect.top - 36)}px`;
+    powerTip.style.display = 'block';
+  });
+  powerCanvas.addEventListener('mouseleave', () => { powerTip.style.display = 'none'; });
+
+  // ── PLAYHEAD SYNCHRONIZATION ──
+  function setupPlayheadSync() {
+    const origAudio = document.getElementById('audio-original');
+    const enhAudio  = document.getElementById('audio-enhanced');
+
+    function tick() {
+      let t = 0;
+      if (!origAudio.paused) {
+        t = origAudio.currentTime;
+      } else if (!enhAudio.paused) {
+        t = enhAudio.currentTime;
+      }
+
+      if (origSpecData) renderSpectrogram('canvas-spec-orig', origSpecData, t);
+      if (enhSpecData)  renderSpectrogram('canvas-spec-enh',  enhSpecData,  t);
+      if (diffSpecData) renderSpectrogram('canvas-spec-diff', diffSpecData, t);
+
+      if (!origAudio.paused || !enhAudio.paused) {
+        animId = requestAnimationFrame(tick);
+      }
+    }
+
+    [origAudio, enhAudio].forEach(a => {
+      a.onplay = () => {
+        if (animId) cancelAnimationFrame(animId);
+        animId = requestAnimationFrame(tick);
+      };
+      a.onpause = () => {
+        if (origAudio.paused && enhAudio.paused && animId) {
+          cancelAnimationFrame(animId);
+        }
+      };
+      a.onseeked = () => tick();
+    });
+  }
+
+  function renderAllSpectrograms() {
+    if (origSpecData) renderSpectrogram('canvas-spec-orig', origSpecData);
+    if (enhSpecData)  renderSpectrogram('canvas-spec-enh',  enhSpecData);
+    if (diffSpecData) renderSpectrogram('canvas-spec-diff', diffSpecData);
+    renderPowerSpectrum();
+  }
+
+  // ── VIEW SWITCHER ──
+  function switchView(view) {
+    currentView = view;
+    document.getElementById('tab-spec').classList.toggle('active', view === 'spec');
+    document.getElementById('tab-power').classList.toggle('active', view === 'power');
+    document.getElementById('tab-diff').classList.toggle('active', view === 'diff');
+
+    const specViews = document.getElementById('spectrogram-views');
+    const powerView = document.getElementById('power-spectrum-container');
+    const diffCard  = document.getElementById('spec-card-diff');
+
+    if (view === 'spec') {
+      specViews.style.display = 'flex';
+      powerView.style.display = 'none';
+      if (diffCard) diffCard.style.display = 'none';
+      renderAllSpectrograms();
+    } else if (view === 'power') {
+      specViews.style.display = 'none';
+      powerView.style.display = 'block';
+      renderPowerSpectrum();
+    } else if (view === 'diff') {
+      specViews.style.display = 'flex';
+      powerView.style.display = 'none';
+      if (diffCard && diffSpecData) diffCard.style.display = 'block';
+      renderAllSpectrograms();
+    }
+  }
+
+  // ── DENOISE INFERENCE PIPELINE ──
+  async function denoiseAudio() {
+    if (!selectedFile) return;
+
+    const btn     = document.getElementById('btn-denoise');
+    const spinner = document.getElementById('spinner');
+    const btnText = document.getElementById('btn-text');
+    const progress = document.getElementById('progress-section');
+    const progressBar = document.getElementById('progress-bar');
+    const progressText = document.getElementById('progress-text');
+
+    btn.disabled = true;
+    spinner.style.display = 'block';
+    btnText.textContent = 'Đang phân tích & khử nhiễu...';
+    progress.style.display = 'block';
+
+    let pct = 5;
+    const interval = setInterval(() => {
+      pct = Math.min(pct + Math.random() * 14, 88);
+      progressBar.style.width = pct + '%';
+      if (pct < 30)      progressText.textContent = 'Đang tải âm thanh vào mô hình...';
+      else if (pct < 65) progressText.textContent = 'DCCRN mạng phức đang tính toán Complex Ratio Mask...';
+      else               progressText.textContent = 'Tái tạo dạng sóng và STFT âm thanh sạch...';
+    }, 350);
+
+    try {
+      const formData = new FormData();
+      formData.append('file', selectedFile);
+
+      const res = await fetch(`${API}/denoise`, { method: 'POST', body: formData });
+      clearInterval(interval);
+      progressBar.style.width = '100%';
+      progressText.textContent = 'Hoàn tất khử nhiễu!';
+
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.detail || 'Lỗi server không xác định');
+      }
+
+      const blob = await res.blob();
+      if (enhancedObjectURL) URL.revokeObjectURL(enhancedObjectURL);
+      enhancedObjectURL = URL.createObjectURL(blob);
+
+      // Set enhanced player
+      const enhAudio = document.getElementById('audio-enhanced');
+      enhAudio.src = enhancedObjectURL;
+
+      const downloadBtn = document.getElementById('btn-download');
+      downloadBtn.href = enhancedObjectURL;
+      const baseName = selectedFile.name.replace(/\.[^.]+$/, '');
+      downloadBtn.download = baseName + '_denoised.wav';
+
+      // Decode enhanced audio for STFT
+      const arrayBuffer = await blob.arrayBuffer();
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      enhancedAudioBuffer = await ctx.decodeAudioData(arrayBuffer);
+      ctx.close();
+
+      // Compute enhanced STFT
+      enhSpecData = computeSTFT(enhancedAudioBuffer);
+
+      // Compute Spectral Difference (Noise Removed: |X_orig| - |X_enh|)
+      diffSpecData = computeDifferenceSTFT(origSpecData, enhSpecData);
+
+      // Calculate Metrics
+      calculateAcousticMetrics(origSpecData, enhSpecData);
+
+      // Show enhanced displays
+      document.getElementById('spec-card-enh').style.display = 'block';
+      document.getElementById('legend-enh-item').style.display = 'flex';
+      document.getElementById('legend-diff-item').style.display = 'flex';
+
+      renderAllSpectrograms();
+
+      await new Promise(r => setTimeout(r, 200));
+      progress.style.display = 'none';
+
+    } catch (err) {
+      clearInterval(interval);
+      progress.style.display = 'none';
+      document.getElementById('error-msg').textContent = err.message;
+      document.getElementById('error-section').style.display = 'block';
+    } finally {
+      btn.disabled = false;
+      spinner.style.display = 'none';
+      btnText.textContent = '🎧 Khử Nhiễu Âm Thanh Ngay';
+    }
+  }
+
+  function computeDifferenceSTFT(orig, enh) {
+    const numFrames = Math.min(orig.numFrames, enh.numFrames);
+    const numBins   = Math.min(orig.numBins, enh.numBins);
+    const dbMatrix  = new Float32Array(numFrames * numBins);
+
+    let maxVal = 0;
+    for (let f = 0; f < numFrames; f++) {
+      for (let k = 0; k < numBins; k++) {
+        const magOrig = orig.magMatrix[f * orig.numBins + k];
+        const magEnh  = enh.magMatrix[f * enh.numBins + k];
+        const diff    = Math.max(0, magOrig - magEnh);
+        const db      = 20 * Math.log10(Math.max(diff, 1e-5));
+        dbMatrix[f * numBins + k] = db;
+        if (db > maxVal) maxVal = db;
+      }
+    }
+
+    return {
+      numFrames,
+      numBins,
+      dbMatrix,
+      minDb: maxVal - 70,
+      maxDb: maxVal,
+      duration: orig.duration,
+      sampleRate: orig.sampleRate
+    };
+  }
+
+  function calculateAcousticMetrics(orig, enh) {
+    // Estimate noise floor reduction (frequencies > 3500 Hz or total difference)
+    const nyquist = orig.sampleRate / 2;
+    const numBins = Math.min(orig.numBins, enh.numBins);
+    let totalOrigPower = 0;
+    let totalEnhPower = 0;
+
+    let voiceOrigPower = 0;
+    let voiceEnhPower = 0;
+
+    for (let k = 0; k < numBins; k++) {
+      const freq = (k / (numBins - 1)) * nyquist;
+      const pOrig = Math.pow(10, orig.avgPowerDb[k] / 10);
+      const pEnh  = Math.pow(10, enh.avgPowerDb[k] / 10);
+
+      totalOrigPower += pOrig;
+      totalEnhPower  += pEnh;
+
+      // Voice band: 300Hz to 3400Hz
+      if (freq >= 300 && freq <= 3400) {
+        voiceOrigPower += pOrig;
+        voiceEnhPower  += pEnh;
+      }
+    }
+
+    const noiseReductionDb = 10 * Math.log10(Math.max(totalOrigPower / Math.max(totalEnhPower, 1e-8), 1));
+    const voicePreservation = Math.min(99.9, (voiceEnhPower / Math.max(voiceOrigPower, 1e-8)) * 100);
+
+    document.getElementById('m-snr').textContent = `-${noiseReductionDb.toFixed(1)} dB`;
+    document.getElementById('m-voice').textContent = `${voicePreservation.toFixed(1)}%`;
+  }
+
+  function formatBytes(bytes) {
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1048576) return (bytes / 1024).toFixed(1) + ' KB';
+    return (bytes / 1048576).toFixed(1) + ' MB';
+  }
+
+  // Handle Window Resize for responsive canvases
+  window.addEventListener('resize', () => {
+    renderAllSpectrograms();
+  });
+</script>
+</body>
+</html>

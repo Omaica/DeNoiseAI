@@ -30,3 +30,8 @@ logs/
 *.swp
 Thumbs.db
 .DS_Store
+
+# Executables & Tools
+tools/
+*.exe
+

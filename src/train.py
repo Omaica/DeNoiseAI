@@ -29,7 +29,7 @@ from src.utils.metrics import evaluate_batch
 
 def load_config(config_path: str) -> dict:
     """Load YAML configuration file."""
-    with open(config_path, "r") as f:
+    with open(config_path, "r", encoding="utf-8-sig") as f:
         config = yaml.safe_load(f)
     return config
 
@@ -60,8 +60,9 @@ class Trainer:
         stft_cfg = config.get("stft", {})
         self.criterion = CombinedLoss(
             si_snr_weight=loss_cfg.get("si_snr_weight", 0.5),
-            magnitude_weight=loss_cfg.get("magnitude_weight", 0.3),
-            complex_weight=loss_cfg.get("complex_weight", 0.2),
+            magnitude_weight=loss_cfg.get("magnitude_weight", 0.2),
+            complex_weight=loss_cfg.get("complex_weight", 0.1),
+            mr_stft_weight=loss_cfg.get("mr_stft_weight", 0.2),
             n_fft=stft_cfg.get("n_fft", 512),
             hop_length=stft_cfg.get("hop_length", 256),
         ).to(self.device)
@@ -76,13 +77,21 @@ class Trainer:
         
         # LR Scheduler
         sched_cfg = train_cfg.get("scheduler", {})
-        self.scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-            self.optimizer,
-            mode="min",
-            factor=sched_cfg.get("factor", 0.5),
-            patience=sched_cfg.get("patience", 3),
-            min_lr=sched_cfg.get("min_lr", 1e-5),
-        )
+        sched_type = sched_cfg.get("type", "reduce_on_plateau").lower()
+        if sched_type == "cosine":
+            self.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+                self.optimizer,
+                T_max=train_cfg.get("epochs", 200),
+                eta_min=sched_cfg.get("min_lr", 1e-5),
+            )
+        else:
+            self.scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+                self.optimizer,
+                mode="min",
+                factor=sched_cfg.get("factor", 0.5),
+                patience=sched_cfg.get("patience", 5),
+                min_lr=sched_cfg.get("min_lr", 1e-5),
+            )
         
         # Mixed precision
         self.use_amp = train_cfg.get("use_amp", True) and self.device.type == "cuda"
@@ -120,20 +129,23 @@ class Trainer:
         mixing_cfg = self.config.get("mixing", {})
         
         self.train_loader = create_dataloader(
-            clean_dir=data_cfg.get("train_clean_dir", "data/train/clean"),
-            noisy_dir=data_cfg.get("train_noisy_dir", "data/train/noisy"),
+            clean_dir=data_cfg.get("train_clean_dir", "data/processed/train/clean"),
+            noisy_dir=data_cfg.get("train_noisy_dir", "data/processed/train/noisy"),
+            noise_dir=data_cfg.get("noise_dir", "data/processed/noise"),
             batch_size=train_cfg.get("batch_size", 16),
             sample_rate=audio_cfg.get("sample_rate", 16000),
             segment_length=audio_cfg.get("n_samples", 64000),
             dynamic_mixing=mixing_cfg.get("dynamic_mixing", False),
+            snr_range=mixing_cfg.get("snr_range", [-5, 20]),
             num_workers=data_cfg.get("num_workers", 4),
             pin_memory=data_cfg.get("pin_memory", True),
             shuffle=True,
         )
         
         self.val_loader = create_dataloader(
-            clean_dir=data_cfg.get("val_clean_dir", "data/val/clean"),
-            noisy_dir=data_cfg.get("val_noisy_dir", "data/val/noisy"),
+            clean_dir=data_cfg.get("val_clean_dir", "data/processed/val/clean"),
+            noisy_dir=data_cfg.get("val_noisy_dir", "data/processed/val/noisy"),
+            noise_dir=data_cfg.get("noise_dir", "data/processed/noise"),
             batch_size=train_cfg.get("batch_size", 16),
             sample_rate=audio_cfg.get("sample_rate", 16000),
             segment_length=audio_cfg.get("n_samples", 64000),
@@ -153,7 +165,7 @@ class Trainer:
             Dictionary with epoch metrics
         """
         self.model.train()
-        epoch_losses = {"total": 0, "si_snr": 0, "magnitude": 0, "complex": 0}
+        epoch_losses = {"total": 0, "si_snr": 0, "magnitude": 0, "complex": 0, "mr_stft": 0}
         num_batches = 0
         
         pbar = tqdm(self.train_loader, desc=f"Epoch {epoch}", leave=False)
@@ -180,7 +192,7 @@ class Trainer:
             
             # Accumulate losses
             for key in epoch_losses:
-                epoch_losses[key] += loss_dict[key] if key != "total" else loss_dict["total"].item()
+                epoch_losses[key] += loss_dict.get(key, 0) if key != "total" else loss_dict["total"].item()
             num_batches += 1
             
             # Logging
@@ -206,7 +218,7 @@ class Trainer:
             Dictionary with validation metrics
         """
         self.model.eval()
-        val_losses = {"total": 0, "si_snr": 0, "magnitude": 0, "complex": 0}
+        val_losses = {"total": 0, "si_snr": 0, "magnitude": 0, "complex": 0, "mr_stft": 0}
         all_metrics = {"si_snr": [], "pesq": [], "stoi": []}
         num_batches = 0
         
@@ -287,6 +299,12 @@ class Trainer:
         self.best_val_loss = checkpoint.get("best_val_loss", float("inf"))
         self.global_step = checkpoint.get("global_step", 0)
         
+        # Update LR if specified in config to allow fine-tuning / overriding
+        new_lr = self.config.get("training", {}).get("learning_rate")
+        if new_lr:
+            for param_group in self.optimizer.param_groups:
+                param_group["lr"] = new_lr
+        
         return checkpoint.get("epoch", 0)
 
     def train(self, resume_from: str = None):
@@ -313,7 +331,10 @@ class Trainer:
             val_losses = self.validate(epoch)
             
             # Update LR
-            self.scheduler.step(val_losses["total"])
+            if isinstance(self.scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau):
+                self.scheduler.step(val_losses["total"])
+            else:
+                self.scheduler.step()
             
             # Timing
             elapsed = time.time() - start_time

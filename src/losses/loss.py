@@ -172,7 +172,10 @@ class MultiResolutionSTFTLoss(nn.Module):
         # Log magnitude loss
         log_loss = F.l1_loss(torch.log(est_mag + 1e-8), torch.log(tgt_mag + 1e-8))
         
-        return sc_loss + log_loss
+        # Power-compressed magnitude loss (c=0.3 like DeepFilterNet to penalize low-energy noise floor)
+        comp_loss = F.l1_loss((est_mag + 1e-8).pow(0.3), (tgt_mag + 1e-8).pow(0.3))
+        
+        return sc_loss + log_loss + comp_loss
 
     def forward(self, estimated: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
         min_len = min(estimated.shape[-1], target.shape[-1])
@@ -189,32 +192,35 @@ class MultiResolutionSTFTLoss(nn.Module):
 class CombinedLoss(nn.Module):
     """Combined loss function for DCCRN training.
     
-    Weighted sum of SI-SNR, Magnitude, and Complex spectrum losses.
-    
-    Args:
-        si_snr_weight: Weight for SI-SNR loss
-        magnitude_weight: Weight for magnitude spectrum loss
-        complex_weight: Weight for complex spectrum loss
-        n_fft: FFT size for spectral losses
-        hop_length: Hop size for spectral losses
+    Weighted sum of:
+    - SI-SNR (time-domain speech fidelity)
+    - Multi-Resolution STFT Loss (multi-scale spectral convergence & power-compressed magnitude)
+    - Magnitude spectrum loss
+    - Complex spectrum loss
     """
 
     def __init__(
         self,
         si_snr_weight: float = 0.5,
-        magnitude_weight: float = 0.3,
-        complex_weight: float = 0.2,
+        magnitude_weight: float = 0.2,
+        complex_weight: float = 0.1,
+        mr_stft_weight: float = 0.2,
         n_fft: int = 512,
         hop_length: int = 256,
+        fft_sizes: list = None,
+        hop_sizes: list = None,
+        win_sizes: list = None,
     ):
         super().__init__()
         self.si_snr_weight = si_snr_weight
         self.magnitude_weight = magnitude_weight
         self.complex_weight = complex_weight
+        self.mr_stft_weight = mr_stft_weight
         
         self.si_snr_loss = SISnrLoss()
         self.magnitude_loss = MagnitudeLoss(n_fft, hop_length)
         self.complex_loss = ComplexSpecLoss(n_fft, hop_length)
+        self.mr_stft_loss = MultiResolutionSTFTLoss(fft_sizes, hop_sizes, win_sizes)
 
     def forward(self, estimated: torch.Tensor, target: torch.Tensor) -> dict:
         """
@@ -224,11 +230,13 @@ class CombinedLoss(nn.Module):
         si_snr = self.si_snr_loss(estimated, target)
         mag = self.magnitude_loss(estimated, target)
         comp = self.complex_loss(estimated, target)
+        mr_stft = self.mr_stft_loss(estimated, target)
         
         total = (
             self.si_snr_weight * si_snr
             + self.magnitude_weight * mag
             + self.complex_weight * comp
+            + self.mr_stft_weight * mr_stft
         )
         
         return {
@@ -236,4 +244,5 @@ class CombinedLoss(nn.Module):
             "si_snr": si_snr.item(),
             "magnitude": mag.item(),
             "complex": comp.item(),
+            "mr_stft": mr_stft.item(),
         }

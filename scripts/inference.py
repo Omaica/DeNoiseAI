@@ -57,7 +57,7 @@ def load_model(checkpoint_path: str, device: torch.device):
     model.eval()
     
     epoch = checkpoint.get("epoch", "?")
-    print(f"  ✓ Loaded model from epoch {epoch}")
+    print(f"  [OK] Loaded model from epoch {epoch}")
     print(f"  Parameters: {model.get_num_params():,}")
     
     return model, config
